@@ -1,0 +1,47 @@
+[Unit]
+Description=rotproxy
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/rotproxy -c /etc/rotproxy/rotproxy.toml
+Restart=on-failure
+StandardOutput=append:/var/log/rotproxy/rotproxy.log
+StandardError=append:/var/log/rotproxy/rotproxy.log
+User=rotproxy
+Group=rotproxy
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
+ProtectDevices=yes
+RestrictNamespaces=yes
+PrivateMounts=yes
+PrivateUsers=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressAllow=127.0.0.0/8 ::1/128
+IPAddressDeny=0.0.0.0/0 ::/0
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@resources @privileged
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+MemoryDenyWriteExecute=yes
+LimitNOFILE=4096
+UMask=0077
+ReadWritePaths=/var/log/rotproxy /etc/rotproxy
+
+[Install]
+WantedBy=multi-user.target

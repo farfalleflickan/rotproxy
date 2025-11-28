@@ -1,0 +1,143 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #1f2937;
+    color: #f9fafb;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+form {
+    background: #111827;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    width: 100%;
+    margin: 40px;
+    max-width: 400px;
+    box-sizing: border-box;
+}
+
+form:valid button[type="submit"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    color: #f9fafb;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+    color: #f9fafb;
+}
+
+input {
+    box-sizing: border-box;
+}
+
+input[type="text"],
+input[type="password"] {
+    width: 100%;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background-color: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    font-size: 1rem;
+    color: #f9fafb;
+}
+
+input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+button {
+    width: 50%;
+    padding: 0.75rem;
+    background-color: #3b82f6;
+    color: white;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: block;
+    margin: 0 auto;
+    margin-top: 16px;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+button:hover {
+    background-color: #2563eb;
+}
+
+.error {
+    text-align: center;
+    color: red;
+    background-color: rgba(255, 0, 0, 0.5);
+    border: 2px solid red;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#spinner {
+    display: none;
+    text-align: center;
+    padding-top: 2rem;
+}
+
+.lds-ring,
+.lds-ring div {
+  box-sizing: border-box;
+}
+
+.lds-ring {
+  display: inline-block;
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.lds-ring div {
+  box-sizing: border-box;
+  display: block;
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  margin: 8px;
+  border: 8px solid currentColor;
+  border-radius: 50%;
+  animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  border-color: currentColor transparent transparent transparent;
+}
+
+.lds-ring div:nth-child(1) {
+  animation-delay: -0.45s;
+}
+
+.lds-ring div:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.lds-ring div:nth-child(3) {
+  animation-delay: -0.15s;
+}
+
+@keyframes lds-ring {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

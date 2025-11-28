@@ -1,0 +1,54 @@
+[package]
+name = "rotproxy"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "A Rust (T)OTP (authentication) Proxy - rotproxy!"
+repository = "https://github.com/farfalleflickan/rotproxy"
+readme = "README.md"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
+termion = { version = "4.0", default-features = false }
+actix-web = { version = "4.10", default-features = false, features = ["macros", "cookies", "secure-cookies"] }
+actix-session = { version = "0.10", default-features = false, features = ["cookie-session"] }
+argon2 = { version = "0.5", default-features = false, features = ["password-hash", "std"] }
+qr2term = { version = "0.3", default-features = false }
+password-hash = { version = "0.5", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+toml = { version = "0.8" }
+totp-rs = { version = "5.7", default-features = false, features = ["gen_secret", "qr"] }
+dirs = { version = "6.0", default-features = false }
+base64 = { version = "0.22", default-features = false }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["std"] }
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"]}
+zeroize = { version = "1.8" }
+dashmap = { version = "6.1" }
+log = { version = "0.4" }
+humantime = { version = "2.2" }
+chrono = { version = "0.4" }
+blake3 = { version = "1.8" }
+
+[package.metadata.deb]
+maintainer = "Daria Rostirolla"
+maintainer-scripts = "pkg/debian"
+depends = "$auto"
+systemd-units = { unit-name = "rotproxy", unit-scripts = "pkg/common", enable = true }
+conf-files = [ 
+  "/etc/rotproxy/rotproxy.toml",
+  "/etc/rotproxy/users.json",
+  "/etc/rotproxy/index.html",
+  "/etc/rotproxy/index.css", 
+]
+
+assets = [
+  ["assets/rotproxy/*", "/etc/rotproxy/", "755"],
+  ["target/release/rotproxy", "/usr/bin/", "755"],
+]

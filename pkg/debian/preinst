@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+if ! id -u rotproxy >/dev/null 2>&1; then
+  useradd -r -s /usr/sbin/nologin rotproxy
+fi
+
+#DEBHELPER#
+
+exit 0

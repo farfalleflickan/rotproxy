@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="{INDEX_CSS_WEBPATH}">
+        <title></title>
+    </head>
+    <body>
+        <form action="{LOGIN_ENDPOINT}" method="post">
+            <input type="text" id="user" name="user" placeholder="Username" autocomplete="username" autofocus required />
+            <input type="password" id="password" name="password" placeholder="Password" autocomplete="password"  required />
+            <input type="text" id="totp" name="totp" placeholder="TOTP 6-digit code" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" required aria-describedby="totp-desc" required />
+            <input type="hidden" name="csrf_token" value="{CSRF_TOKEN_TEMPLATE}" required />
+            <button type="submit" id="loginButton">Log in</button>
+            <div id="spinner"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></div>
+        </form>
+    </body>
+    <script>
+        document.getElementById('loginButton').addEventListener('click', async (e) => {
+            document.getElementById('spinner').style.display = 'block';
+        });
+    </script>
+</html>

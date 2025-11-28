@@ -1,0 +1,20 @@
+#!/bin/sh -e
+
+case "$1" in
+  purge)
+    rmdir --ignore-fail-on-non-empty /etc/rotproxy 2>/dev/null || true
+
+    if [ -d "/var/log/rotproxy" ]; then
+      echo "Logs in /var/log/rotproxy/ are not removed automatically."
+    fi
+    ;;
+  remove|purge)
+    if id -u rotproxy >/dev/null 2>&1; then
+        userdel rotproxy
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

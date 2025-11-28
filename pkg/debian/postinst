@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    if [ ! -f "/etc/rotproxy/rotproxy.toml" ]; then
+        rotproxy init-conf > /etc/rotproxy/rotproxy.toml
+        chmod 644 /etc/rotproxy/rotproxy.toml
+    fi
+    
+    if [ ! -f "/etc/rotproxy/users.json" ]; then
+        touch /etc/rotproxy/users.json
+        chmod 644 /etc/rotproxy/users.json
+    fi
+
+    if [ ! -d "/var/log/rotproxy" ]; then
+        mkdir /var/log/rotproxy
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0
+
