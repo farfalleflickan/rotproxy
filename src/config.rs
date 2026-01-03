@@ -108,6 +108,7 @@ fn print_usage() {
     println!("\t-p | --port port\t\t\tport to bind to");
     println!("\t-u | --users /path/to/db.json\t\tusers database");
     println!("\t-w | --webpage /path/to/index.html\thtml login page to serve");
+    println!("\t-v | --version\t\t\t\tprint version");
     println!("\tadd-user\t\t\t\tCreate a new user");
     println!("\tdelete-user\t\t\t\tDelete a user");
     println!("\tedit-user\t\t\t\tEdit a user");
@@ -188,6 +189,10 @@ pub fn parse_args(conf: &mut Config) {
         match args[i].as_str() {
             "-h" | "--help" | "help" => {
                 print_usage();
+                std::process::exit(0);
+            }
+            "-v" | "--version" | "version" => {
+                println!("{} version: {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             "-i" | "--interface" => {

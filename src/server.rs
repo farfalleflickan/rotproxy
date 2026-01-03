@@ -253,54 +253,45 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
                 }
 
                 if let Some(user) = data.get(username.as_str()) {
+                    let stored_pw   = Zeroizing::new(user.password.clone());
+                    let stored_totp = Zeroizing::new(user.totp.clone());
+                    drop(user);
+
                     let conf_copy = conf.clone();
-                    let user_pw_copy = Zeroizing::new(user.password.clone());
-                    let input_pw_copy = Zeroizing::new(password.clone());
-                    let is_valid: bool = web::block(move || crypt::verify_password(&conf_copy, &user_pw_copy, &input_pw_copy)).await.unwrap_or(false);
-
-                    if is_valid {
-                        if let Ok(pwd_salt) = crypt::get_hash_salt(&user.password) {
-                            let conf_copy = conf.clone();
-                            let totp_copy = Zeroizing::new(user.totp.clone());
-                            let user_pw_copy = Zeroizing::new(password.clone());
-
-                            let decrypt_res = web::block(move || crypt::kdf_decrypt(&conf_copy, &totp_copy, &user_pw_copy, &pwd_salt).map_err(|e| e.to_string())).await;
-                            match decrypt_res {
-                                Ok(Ok(dec_totp)) => {
-                                    let totp_secret  = dec_totp.clone();
-                                    let totp_copy = totp.clone();
-                                    let totp_valid: bool = web::block(move || { crypt::check_totp(&totp_secret,&totp_copy)}).await.unwrap_or(false);
-
-                                    if totp_valid {
-                                        rate_limiter.clear_user(&username);
-                                        if session.insert("user", username.as_str()).is_ok() {
-                                            info!("Authenticated \"{}\" - \"{}\" \"{}\" \"{}\"", username.as_str(), ip, req_user_agent, req_referer);
-                                            session.insert("start", utils::unix_timestamp()).ok();
-                                            session.renew();
-
-                                            if let Ok(Some(redirect)) = session.get::<String>("login_redirect") {
-                                                if !redirect.is_empty() {
-                                                    let _ = session.remove("login_redirect");
-                                                    return HttpResponse::SeeOther().insert_header((header::LOCATION, redirect)).finish();
-                                                }
-                                            }
-                                            
-                                            if conf.login_redirect.is_empty() {
-                                                return HttpResponse::Ok().body("Authenticated");
-                                            }
-
-                                            return HttpResponse::SeeOther().insert_header((header::LOCATION, conf.login_redirect.clone())).finish();
-                                        }
-                                    } else {
-                                        user_fails = rate_limiter.record_user_failure(&username, &ip);
+                    let is_valid: bool = web::block(move || { 
+                        if crypt::verify_password(&conf_copy, &stored_pw, &password) {
+                            if let Ok(pwd_salt) = crypt::get_hash_salt(&stored_pw) {
+                                let decrypt_res = crypt::kdf_decrypt(&conf_copy, &stored_totp, &password, &pwd_salt).map_err(|e| e.to_string());
+                                match decrypt_res {
+                                    Ok(dec_totp) => {
+                                        return crypt::check_totp(&dec_totp,&totp);
                                     }
-                                }
-                                _ => {
-                                    user_fails = rate_limiter.record_user_failure(&username, &ip);
+                                    _ => {}
                                 }
                             }
-                        } else {
-                            user_fails = rate_limiter.record_user_failure(&username, &ip);
+                        }
+                        return false;
+                    }).await.unwrap_or(false);
+
+                    if is_valid {
+                        rate_limiter.clear_user(&username);
+                        if session.insert("user", username.as_str()).is_ok() {
+                            info!("Authenticated \"{}\" - \"{}\" \"{}\" \"{}\"", username.as_str(), ip, req_user_agent, req_referer);
+                            session.insert("start", utils::unix_timestamp()).ok();
+                            session.renew();
+
+                            if let Ok(Some(redirect)) = session.get::<String>("login_redirect") {
+                                if !redirect.is_empty() {
+                                    let _ = session.remove("login_redirect");
+                                    return HttpResponse::SeeOther().insert_header((header::LOCATION, redirect)).finish();
+                                }
+                            }
+                            
+                            if conf.login_redirect.is_empty() {
+                                return HttpResponse::Ok().body("Authenticated");
+                            }
+
+                            return HttpResponse::SeeOther().insert_header((header::LOCATION, conf.login_redirect.clone())).finish();
                         }
                     } else {
                         user_fails = rate_limiter.record_user_failure(&username, &ip);

@@ -30,17 +30,18 @@ cargo run
 ```
 Usage:
 	-c | --config /path/to/config.toml	Specify path to config file
-	-h | --help				Prints this help
-	-i | --interface ip			ip to bind to
-	-p | --port port			port to bind to
+	-h | --help							Prints this help
+	-i | --interface ip					ip to bind to
+	-p | --port port					port to bind to
 	-u | --users /path/to/db.json		users database
 	-w | --webpage /path/to/index.html	html login page to serve
-	add-user				Create a new user
-	delete-user				Delete a user
-	edit-user				Edit a user
-	list-users				List all users
-	init-conf				Prints default toml config
-	gen-cookie				Provides a new cookie key
+	-v | --version						print version
+	add-user							Create a new user
+	delete-user							Delete a user
+	edit-user							Edit a user
+	list-users							List all users
+	init-conf							Prints default toml config
+	gen-cookie							Provides a new cookie key
 ```
 
 
