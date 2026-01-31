@@ -35,6 +35,7 @@ log = { version = "0.4" }
 humantime = { version = "2.2" }
 chrono = { version = "0.4" }
 blake3 = { version = "1.8" }
+url = { version = "2.5" }
 
 [package.metadata.deb]
 maintainer = "Daria Rostirolla"
@@ -45,7 +46,8 @@ conf-files = [
   "/etc/rotproxy/rotproxy.toml",
   "/etc/rotproxy/users.json",
   "/etc/rotproxy/index.html",
-  "/etc/rotproxy/index.css", 
+  "/etc/rotproxy/index.css",
+  "/etc/rotproxy/logout.html",
 ]
 
 assets = [

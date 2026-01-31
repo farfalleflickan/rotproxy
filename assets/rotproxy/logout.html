@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="{INDEX_CSS_WEBPATH}">
+        <title></title>
+    </head>
+    <body>
+        <form action="{LOGOUT_ENDPOINT}" class="form" method="post">
+            <input type="hidden" name="csrf_token" value="{CSRF_TOKEN_TEMPLATE}" required />
+            <button type="submit" id="logoutButton">Log out?</button>
+            <div id="spinner"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></div>
+        </form>
+    </body>
+    <script>
+        document.getElementById('logoutButton').addEventListener('click', async (e) => {
+            document.getElementById('spinner').style.display = 'block';
+        });
+    </script>
+</html>

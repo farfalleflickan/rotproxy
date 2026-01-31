@@ -7,7 +7,7 @@
         <title></title>
     </head>
     <body>
-        <form action="{LOGIN_ENDPOINT}" method="post">
+        <form action="{LOGIN_ENDPOINT}" class="form form_login" method="post">
             <input type="text" id="user" name="user" placeholder="Username" autocomplete="username" autofocus required />
             <input type="password" id="password" name="password" placeholder="Password" autocomplete="password"  required />
             <input type="text" id="totp" name="totp" placeholder="TOTP 6-digit code" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" required aria-describedby="totp-desc" required />

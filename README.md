@@ -34,7 +34,7 @@ Usage:
 	-i | --interface ip					ip to bind to
 	-p | --port port					port to bind to
 	-u | --users /path/to/db.json		users database
-	-w | --webpage /path/to/index.html	html login page to serve
+	-w | --webpage /path/to/html/		folder with the html pages to serve
 	-v | --version						print version
 	add-user							Create a new user
 	delete-user							Delete a user

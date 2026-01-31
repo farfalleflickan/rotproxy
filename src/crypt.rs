@@ -172,11 +172,17 @@ pub fn magic_hash(magic_str: &str, hash_size: usize, time: Duration, range: Rang
 
     let hash = to_hex(&buf);
 
+    let hash_ret_start = if range.start == usize::MAX || range.start > hash.len() {
+        0
+    } else {
+        range.start
+    };
+
     let hash_ret_end = if range.end == usize::MAX || range.end > hash.len() {
         hash.len()
     } else {
         range.end
     };
 
-    hash.chars().skip(range.start).take(hash_ret_end - range.start).collect()
+    hash.chars().skip(hash_ret_start).take(hash_ret_end - hash_ret_start).collect()
 }

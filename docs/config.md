@@ -19,16 +19,23 @@ login_page = "html"
 This means that the main page is hosted on `/rotproxy/html`, when one types their login information it will POST to `rotproxy/login` while the auth endpoint is `/rotproxy/apiv1/auth`. 
 
 ### Redirects
-The `login_redirect` and `logout_redirect` settings take URLs to which a user will be automatically redirected on login/logout. These are static routes, but one can also pass the request parameter `redirect=` to specify where a user should be redirected.
+The `login_redirect` and `logout_redirect` settings take URLs to which a user will be automatically redirected on login/logout. These are static routes, but one can also pass the request parameter `redirect=` to specify where a user should be redirected. The URL specified in the request parameter is then checked for safety, relative URLs are validated while absolute URLs are checked against `redirect_domains`. If `redirect_domains` is left empty, only relative URLs are allowed in `redirect=` since there are no valid domains. Note that `redirect_domains` is validated at startup. Subdomains need to be explicitly allowed.
+
+Example:
+```
+login_redirect = "https://example.com/dashboard"
+logout_redirect = "https://example.com/"
+redirect_domains = [ "example.com" ]
+```
 
 ### Magic routing
 `magic_str` is the magic number that is used together with time to calculate a BLAKE3 hash that is used to hide the `login_page`, `login_endpoint` and `logout_endpoint` routes. Critically it is not used to hide `auth_endpoint` as that has to be reachable by the web server and ideally it should not even be externally resolvable.
 This hash is placed after `webroot_route` but before any other route. Using the example in the section above, the login page would be `/rotproxy/{hash}/html`.
 
-`magic_bytes` sets how many bytes the BLAKE3 hash will use. Keep in mind that the resulting hash is returned in hex so a value of `32` bytes in the end equals a `64` character string.
+`magic_bytes` sets how many bytes the BLAKE3 hash will use. Keep in mind that the resulting hash is returned in hex so a value of `32` bytes in the end equals a `64` character string. At least `32` bytes are always generated.
 
 `magic_str_duration` sets how often the hash will rotate using [humantime](https://docs.rs/humantime/latest/humantime/). The max value is every 24h.
-`magic_str_char_range` is the range that sets which parts of the hash will be used.
+`magic_str_char_range` is the range that sets which parts of the hash will be used - the end index is non-inclusive.
 
 The concept of the magic route is to mask the login page from access unless one is privy to the conditions set in the configuration, at which point one has to go through the process of calculating it.
 

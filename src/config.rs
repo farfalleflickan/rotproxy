@@ -1,8 +1,9 @@
-use crate::{handle_unwrap, utils::{is_valid_ip, is_valid_file_path}, crypt::{generate_cookie_key}};
+use crate::{handle_unwrap, utils::{is_valid_ip, is_valid_file_path, append_slash}, crypt::{generate_cookie_key}};
 
 use std::{net::{IpAddr, Ipv4Addr}, path::{Path, PathBuf}, time::Duration, ops::Range};
 use serde::{Deserialize, Serialize};
 use humantime::parse_duration;
+use url::Url;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub enum Operation {
@@ -28,6 +29,7 @@ pub struct Config {
     pub login_redirect: String,
     pub logout_endpoint: String,
     pub logout_redirect: String,
+    pub redirect_domains: Vec<String>,
     pub trusted_proxies: Vec<std::net::IpAddr>,
     pub magic_str: String,
     pub magic_bytes: usize,
@@ -64,7 +66,7 @@ impl Default for Config {
             ip: "127.0.0.1".to_string(),
             port: 8000,
             db_path: PathBuf::from("/etc/rotproxy/users.json"),
-            html_path: PathBuf::from("/etc/rotproxy/index.html"),
+            html_path: PathBuf::from("/etc/rotproxy/"),
             webroot_route: "rotproxy".to_string(),
             login_route: "".to_string(),
             auth_endpoint: "auth".to_string(),
@@ -72,6 +74,7 @@ impl Default for Config {
             login_redirect: "".to_string(),
             logout_endpoint: "logout".to_string(),
             logout_redirect: "".to_string(),
+            redirect_domains: vec![],
             magic_str: "".to_string(),
             magic_bytes: 32,
             magic_str_duration: "1h".to_string(),
@@ -107,7 +110,7 @@ fn print_usage() {
     println!("\t-i | --interface ip\t\t\tip to bind to");
     println!("\t-p | --port port\t\t\tport to bind to");
     println!("\t-u | --users /path/to/db.json\t\tusers database");
-    println!("\t-w | --webpage /path/to/index.html\thtml login page to serve");
+    println!("\t-w | --webpage /path/to/html\t\tolder with the html pages to serve");
     println!("\t-v | --version\t\t\t\tprint version");
     println!("\tadd-user\t\t\t\tCreate a new user");
     println!("\tdelete-user\t\t\t\tDelete a user");
@@ -126,9 +129,51 @@ fn load_config_from_file<P: AsRef<Path>>(file_path: P, conf: &mut Config) -> Res
 
     let parsed_config: Config = toml::from_str(&file_contents).map_err(|e| format!("Failed to parse config TOML: {}", e))?;
 
+    for domain in &parsed_config.redirect_domains {
+        if let Err(e) = validate_domain(&domain) {
+            eprintln!("Invalid redirect domain in config: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     *conf = parsed_config;
 
     Ok(())
+}
+
+fn validate_domain(domain: &str) -> Result<(), String> {
+    if domain.is_empty() {
+        return Err("Domain cannot be empty".to_string());
+    }
+    
+    if domain.contains("://") {
+        return Err(format!("'{}' appears to be a URL, not a domain. Remove the protocol (e.g., use 'example.com' not 'https://example.com')", domain));
+    }
+    
+    if domain.contains('/') {
+        return Err(format!("'{}' contains a path. Use only the domain name.", domain));
+    }
+    
+    let test_url = format!("https://{}/", domain);
+    
+    match Url::parse(&test_url) {
+        Ok(parsed) => {
+            match parsed.host_str() {
+                Some(host) => {
+                    if host != domain && !domain.ends_with(&format!(":{}", parsed.port().unwrap_or(443))) {
+                        return Err(format!("Domain '{}' parsed unexpectedly as '{}'", domain, host));
+                    }
+                }
+                None => {
+                    return Err(format!("Domain '{}' has no valid host component", domain));
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            Err(format!("Invalid domain '{}': {}", domain, e))
+        }
+    }
 }
 
 pub fn parse_args(conf: &mut Config) {
@@ -248,15 +293,31 @@ pub fn parse_args(conf: &mut Config) {
                     let file = args[i + 1].clone();
                     i += 1;
 
-                    match is_valid_file_path(&file, true, false) {
-                        Ok(()) => {
-                            conf.html_path = PathBuf::from(file);
-                        }
+                    match is_valid_file_path(append_slash(&file)+"index.html", true, false) {
+                        Ok(()) => {}
                         Err(e) => {
                             eprintln!("Path to html file \"{}\" is invalid: {}", file, e);
                             std::process::exit(1);
                         }
                     }
+                    
+                    match is_valid_file_path(append_slash(&file)+"index.css", true, false) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            eprintln!("Path to html file \"{}\" is invalid: {}", file, e);
+                            std::process::exit(1);
+                        }
+                    }
+                    
+                    match is_valid_file_path(append_slash(&file)+"logout.html", true, false) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            eprintln!("Path to html file \"{}\" is invalid: {}", file, e);
+                            std::process::exit(1);
+                        }
+                    }
+
+                    conf.html_path = PathBuf::from(file);
                 } else {
                     eprintln!("Missing value for -t");
                     std::process::exit(1);
@@ -308,10 +369,26 @@ pub fn parse_args(conf: &mut Config) {
         }
     }
     
-    match is_valid_file_path(&conf.html_path, true, false) {
+    match is_valid_file_path(&conf.html_path.join("index.html"), true, false) {
         Ok(()) => {}
         Err(e) => {
-            eprintln!( "Path to html file \"{}\" is invalid: {}", conf.html_path.display(), e);
+            eprintln!( "Path to html files \"{}\" is invalid: {}", conf.html_path.display(), e);
+            std::process::exit(1);
+        }
+    }
+
+    match is_valid_file_path(&conf.html_path.join("index.css"), true, false) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!( "Path to html files \"{}\" is invalid: {}", conf.html_path.display(), e);
+            std::process::exit(1);
+        }
+    }
+
+    match is_valid_file_path(&conf.html_path.join("logout.html"), true, false) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!( "Path to html files \"{}\" is invalid: {}", conf.html_path.display(), e);
             std::process::exit(1);
         }
     }
@@ -372,5 +449,10 @@ pub fn parse_args(conf: &mut Config) {
         }
 
         conf.magic_range = start..end;
+    }
+
+    if conf.hash_mem_cost*1024 > u32::MAX {
+        eprintln!( "Invalid hash_mem_cost \"{}\", max value is: {}", conf.hash_mem_cost, u32::MAX/1024);
+        std::process::exit(1);
     }
 }

@@ -1,7 +1,7 @@
 ip = "127.0.0.1"
 port = 8000
 db_path = "/etc/rotproxy/users.json"
-html_path = "/etc/rotproxy/index.html"
+html_path = "/etc/rotproxy/"
 webroot_route = "rotproxy"
 login_route = ""
 auth_endpoint = "auth"
@@ -9,6 +9,7 @@ login_endpoint = "login"
 login_redirect = ""
 logout_endpoint = "logout"
 logout_redirect = ""
+redirect_domains = []
 trusted_proxies = ["127.0.0.1"]
 magic_str = ""
 magic_bytes = 32
