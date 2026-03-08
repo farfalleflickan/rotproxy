@@ -354,7 +354,13 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
 
     let html_with_csrf = html.get_ref().0.replace("{CSRF_TOKEN_TEMPLATE}", &csrf_token).replace("{INDEX_CSS_WEBPATH}", css_path.get_ref().0.as_str()).replace("{LOGIN_ENDPOINT}", &web_path);
     let invalid_html = html_with_csrf.replace("<button type=\"submit\" id=\"loginButton\">Log in</button>", "<div class=\"error\">Invalid credentials</div>\n\t\t<button type=\"submit\" id=\"loginButton\">Log in</button>");
-    let login_failed = HttpResponse::Ok().content_type("text/html; charset=utf-8").body(invalid_html);
+    let login_failed = HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .insert_header(("Content-Security-Policy", conf.content_policy.as_str()))
+        .insert_header(("X-Frame-Options", "DENY"))
+        .insert_header(("X-Content-Type-Options", "nosniff"))
+        .insert_header(("Referrer-Policy", "no-referrer"))
+        .body(invalid_html);
 
     let session_success = constant_time_eq_str(&session_token, &form.csrf_token);
     let _ = session.insert("csrf_token", &csrf_token);
@@ -537,7 +543,13 @@ async fn logout(req: HttpRequest, magic_path: Option<web::Path<String>>, form: w
 
     let html_with_csrf = html.get_ref().0.replace("{CSRF_TOKEN_TEMPLATE}", &csrf_token).replace("{INDEX_CSS_WEBPATH}", css_path.get_ref().0.as_str()).replace("{LOGOUT_ENDPOINT}", &web_path);
     let invalid_html = html_with_csrf.replace("<button type=\"submit\" id=\"logoutButton\">Log out?</button>", "<div class=\"error\">Failed!</div>\n\t\t<button type=\"submit\" id=\"logoutButton\">Log out?</button>");
-    let logout_failed = HttpResponse::Ok().content_type("text/html; charset=utf-8").body(invalid_html);
+    let logout_failed = HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .insert_header(("Content-Security-Policy", conf.content_policy.as_str()))
+        .insert_header(("X-Frame-Options", "DENY"))
+        .insert_header(("X-Content-Type-Options", "nosniff"))
+        .insert_header(("Referrer-Policy", "no-referrer"))
+        .body(invalid_html);
 
     let username: String = session.get("user").ok().flatten().unwrap_or_default();
     let redirect: String = session.get("logout_redirect").ok().flatten().unwrap_or_default();

@@ -455,4 +455,9 @@ pub fn parse_args(conf: &mut Config) {
         eprintln!( "Invalid hash_mem_cost \"{}\", max value is: {}", conf.hash_mem_cost, u32::MAX/1024);
         std::process::exit(1);
     }
+
+    if conf.cookie_key.len() < 64 {
+        eprintln!( "Configured cookie_key is shorter than the required 64 characters!");
+        std::process::exit(1);
+    }
 }
