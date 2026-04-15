@@ -1,13 +1,13 @@
-use super::{config, crypt, user, utils, utils::SmartQueue, utils::{append_slash, prepend_slash, trim_slashes, trim_slash_end, constant_time_eq_str}, handle_unwrap};
+use super::{config, crypt, crypt::{rand_str}, user, utils, utils::SmartQueue, utils::{append_slash, prepend_slash, trim_slashes, trim_slash_end, constant_time_eq_str}, handle_unwrap};
 
 use actix_web::{cookie::{Key, SameSite}, http::header, middleware::{Logger, NormalizePath}, rt, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_session::{storage::CookieSessionStore, SessionMiddleware, config::SessionLifecycle};
-use url::Url;
 use std::{env, io::Write, net::IpAddr, time::{Duration, Instant}, collections::HashMap};
 use log::{debug, error, info, trace, warn};
 use zeroize::Zeroizing;
 use serde::Deserialize;
 use dashmap::DashMap;
+use url::Url;
 
 struct RateLimiter {
     clients: DashMap<String, SmartQueue<Instant>>,
@@ -94,6 +94,11 @@ struct LoginForm {
 #[derive(Deserialize)]
 struct LogoutForm {
     csrf_token: String
+}
+
+struct DummyCrypto {
+    password: String,
+    totp: String
 }
 
 struct HtmlIndexContent(pub String);
@@ -234,6 +239,7 @@ async fn login_page(req: HttpRequest, magic_path: Option<web::Path<String>>, htm
         .insert_header(("X-Frame-Options", "DENY"))
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header(("Referrer-Policy", "no-referrer"))
+        .insert_header(("Cache-Control", "no-store"))
         .body(html_with_csrf)
 }
 
@@ -303,6 +309,7 @@ async fn logout_page(req: HttpRequest, magic_path: Option<web::Path<String>>, ht
         .insert_header(("X-Frame-Options", "DENY"))
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header(("Referrer-Policy", "no-referrer"))
+        .insert_header(("Cache-Control", "no-store"))
         .body(html_with_csrf)
 }
 
@@ -338,7 +345,7 @@ fn get_client_ip(conf: &config::Config, req: &HttpRequest) -> Option<IpAddr> {
     Some(peer_ip)
 }
 
-async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: web::Data<DashMap<String, user::User>>, form: web::Form<LoginForm>, session: actix_session::Session, rate_limiter: web::Data<RateLimiter>, conf: web::Data<config::Config>, html: web::Data<HtmlIndexContent>, css_path: web::Data<CssRoute>) -> impl Responder {
+async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: web::Data<DashMap<String, user::User>>, form: web::Form<LoginForm>, session: actix_session::Session, rate_limiter: web::Data<RateLimiter>, conf: web::Data<config::Config>, html: web::Data<HtmlIndexContent>, css_path: web::Data<CssRoute>, dummy_crypto: web::Data<DummyCrypto>) -> impl Responder {
     let magic = magic_path.unwrap_or(web::Path::from("".to_string()));
 
     if !conf.magic_str.is_empty() && !constant_time_eq_str(magic.as_str(), &crypt::magic_hash(&conf.magic_str, conf.magic_bytes, conf.magic_duration, conf.magic_range.clone())) {
@@ -360,6 +367,7 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
         .insert_header(("X-Frame-Options", "DENY"))
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header(("Referrer-Policy", "no-referrer"))
+        .insert_header(("Cache-Control", "no-store"))
         .body(invalid_html);
 
     let session_success = constant_time_eq_str(&session_token, &form.csrf_token);
@@ -387,8 +395,6 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
             return login_failed
         }
 
-        let mut dummy_crypto_delay = true;
-
         if session_success {
             user_fails = rate_limiter.get_user_failures(&username, &ip);
             if user_fails >= rate_limiter.user_max_requests {
@@ -405,25 +411,18 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
 
             if user::validate_username(&username) {
                 if let Some(user) = data.get(username.as_str()) {
-                    dummy_crypto_delay = false;
                     let stored_pw   = Zeroizing::new(user.password.clone());
                     let stored_totp = Zeroizing::new(user.totp.clone());
                     drop(user);
 
                     let conf_copy = conf.clone();
                     let is_valid: bool = web::block(move || { 
-                        if crypt::verify_password(&conf_copy, &stored_pw, &password) {
-                            if let Ok(pwd_salt) = crypt::get_hash_salt(&stored_pw) {
-                                let decrypt_res = crypt::kdf_decrypt(&conf_copy, &stored_totp, &password, &pwd_salt).map_err(|e| e.to_string());
-                                match decrypt_res {
-                                    Ok(dec_totp) => {
-                                        return crypt::check_totp(&dec_totp,&totp);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        return false;
+                        let pwd_ok = crypt::verify_password(&conf_copy, &stored_pw, &password);
+                        let pwd_salt = crypt::get_hash_salt(&stored_pw).unwrap_or_default();
+                        let dec_totp = crypt::kdf_decrypt(&conf_copy, &stored_totp, &password, &pwd_salt).unwrap_or_default();
+                        let totp_ok = crypt::check_totp(&dec_totp,&totp);                        
+                        
+                        return pwd_ok && totp_ok;
                     }).await.unwrap_or(false);
 
                     if is_valid {
@@ -453,7 +452,23 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
                     } else {
                         user_fails = rate_limiter.record_user_failure(&username, &ip);
                     }
+                } else {
+                    let conf_copy = conf.clone();
+                    web::block(move || {
+                        crypt::verify_password(&conf_copy, &dummy_crypto.password, &password);
+                        let dummy_salt = crypt::get_hash_salt(&dummy_crypto.password).unwrap_or_default();
+                        let dec_totp = crypt::kdf_decrypt(&conf_copy, &dummy_crypto.totp, &password, &dummy_salt).unwrap_or_default();
+                        crypt::check_totp(&dec_totp,&totp);
+                    }).await.ok();
                 }
+            } else {
+                let conf_copy = conf.clone();
+                web::block(move || {
+                    crypt::verify_password(&conf_copy, &dummy_crypto.password, &password);
+                    let dummy_salt = crypt::get_hash_salt(&dummy_crypto.password).unwrap_or_default();
+                    let dec_totp = crypt::kdf_decrypt(&conf_copy, &dummy_crypto.totp, &password, &dummy_salt).unwrap_or_default();
+                    crypt::check_totp(&dec_totp,&totp);
+                }).await.ok();
             }
         } else {
             ip_fails = rate_limiter.record_ip_failure(&ip);
@@ -479,7 +494,7 @@ async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: we
         );
 
         let delay = std::cmp::min(std::cmp::max(user_fails, ip_fails) as u64, 5) as u64;
-        let millis = if dummy_crypto_delay { crypt::rand_between(260, 990) } else { crypt::rand_between(10, 500) };
+        let millis = crypt::rand_between(10, 500);
         rt::time::sleep(Duration::from_secs(std::cmp::max(1, delay)) + Duration::from_millis(millis)).await;
 
         if ip_fails >= rate_limiter.ip_max_requests {
@@ -549,6 +564,7 @@ async fn logout(req: HttpRequest, magic_path: Option<web::Path<String>>, form: w
         .insert_header(("X-Frame-Options", "DENY"))
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header(("Referrer-Policy", "no-referrer"))
+        .insert_header(("Cache-Control", "no-store"))
         .body(invalid_html);
 
     let username: String = session.get("user").ok().flatten().unwrap_or_default();
@@ -655,6 +671,35 @@ pub async fn start_server(conf: config::Config) {
         )}
     ).init();
 
+    //precompute dummy crypto
+    let dummy_crypto: DummyCrypto;
+    {
+        let pwd  = rand_str(32);
+        let hash = handle_unwrap!(crypt::hash_password(&conf, &pwd));
+        let salt = crypt::get_hash_salt(&hash);
+        
+        if salt.is_err() {
+            utils::fatal_error(&format!("Failed getting dummy salt while parsing dummy hash: {}", hash), salt.as_ref().err());
+        }
+
+        let salt = salt.unwrap();
+        let secret = crypt::new_secret();
+        let totp = crypt::kdf_encrypt(&conf, &secret, &pwd, &salt);
+
+        if totp.is_err() {
+            utils::fatal_error(&format!("Error while kdf encrypting dummy TOTP: {}", secret), totp.as_ref().err());
+        }
+
+        let totp = totp.unwrap();
+
+        dummy_crypto = DummyCrypto {
+            password: hash,
+            totp,
+        };
+    }
+
+    let dummy_crypto_data = web::Data::new(dummy_crypto);
+
     info!("Starting rotproxy on {}:{}{}", interface, port, webroot);
 
     let user_map = handle_unwrap!(user::read_user_db(&conf.db_path));
@@ -716,6 +761,7 @@ pub async fn start_server(conf: config::Config) {
             .app_data(css_route.clone())
             .app_data(css_data.clone())
             .app_data(conf_data.clone())
+            .app_data(dummy_crypto_data.clone())
             .route(&auth_ep, web::get().to(auth)) //HAS to be here before wildcards in case magic_str is set...
             .route(&trim_slash_end(&login_subpath), web::get().to(login_page))
             .route(&index_html_path, web::get().to(login_page))

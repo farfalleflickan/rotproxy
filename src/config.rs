@@ -451,7 +451,7 @@ pub fn parse_args(conf: &mut Config) {
         conf.magic_range = start..end;
     }
 
-    if conf.hash_mem_cost*1024 > u32::MAX {
+    if (conf.hash_mem_cost as u64) * 1024 > u32::MAX as u64 {
         eprintln!( "Invalid hash_mem_cost \"{}\", max value is: {}", conf.hash_mem_cost, u32::MAX/1024);
         std::process::exit(1);
     }
