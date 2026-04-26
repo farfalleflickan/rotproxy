@@ -1,4 +1,4 @@
-use crate::{handle_unwrap, utils::{is_valid_ip, is_valid_file_path, append_slash}, crypt::{generate_cookie_key}};
+use crate::{crypt::generate_cookie_key, handle_unwrap, server::{check_redirect}, utils::{append_slash, is_valid_file_path, is_valid_ip}};
 
 use std::{net::{IpAddr, Ipv4Addr}, path::{Path, PathBuf}, time::Duration, ops::Range};
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,44 @@ pub enum Operation {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum TotpAlg {
+    SHA1,
+    SHA256,
+    SHA512,
+}
+
+impl From<TotpAlg> for totp_rs::Algorithm {
+    fn from(value: TotpAlg) -> Self {
+        match value {
+            TotpAlg::SHA1 => totp_rs::Algorithm::SHA1,
+            TotpAlg::SHA256 => totp_rs::Algorithm::SHA256,
+            TotpAlg::SHA512 => totp_rs::Algorithm::SHA512,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct TotpConf {
+    pub alg: TotpAlg,
+    pub digits: usize,
+    pub skew: u8, 
+    pub step: u64,
+}
+
+impl Default for TotpConf {
+    fn default() -> Self {
+        TotpConf {
+            alg: TotpAlg::SHA1,
+            digits: 6,
+            skew: 1,
+            step: 30,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Config {
     pub ip: String,
@@ -30,6 +68,7 @@ pub struct Config {
     pub logout_endpoint: String,
     pub logout_redirect: String,
     pub redirect_domains: Vec<String>,
+    pub allow_http_redirect: bool,
     pub trusted_proxies: Vec<std::net::IpAddr>,
     pub magic_str: String,
     pub magic_bytes: usize,
@@ -40,17 +79,24 @@ pub struct Config {
     pub rate_limit_max_ip_attempts: usize,
     pub rate_limit_ip_window: u64,
     pub rate_limit_bg_prune_job: u64,
+    pub rate_limit_user_globally: bool,
     pub content_policy: String,
     pub cookie_key: String,
     pub cookie_name: String,
     pub cookie_path: String,
     pub cookie_domain: String,
     pub cookie_secure: bool,
-    pub session_ttl: u32,
-    pub session_abs_ttl: u32,
+    pub session_ttl: i64,
+    pub session_abs_ttl: i64,
+    pub print_terminal_password: bool,
+    pub max_password_length: usize,
     pub hash_mem_cost: u32,
     pub hash_time_cost: u32,
     pub hash_parallel_cost: u32,
+    totp_alg: TotpAlg,
+    totp_digits: usize,
+    totp_skew: u8, 
+    totp_step: u64,
 
     #[serde(skip_serializing, skip_deserializing, default)]
     pub op: Operation,
@@ -58,6 +104,8 @@ pub struct Config {
     pub magic_duration: Duration,
     #[serde(skip_serializing, skip_deserializing)]
     pub magic_range: Range<usize>,
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub totp_conf: TotpConf,
 }
 
 impl Default for Config {
@@ -75,6 +123,7 @@ impl Default for Config {
             logout_endpoint: "logout".to_string(),
             logout_redirect: "".to_string(),
             redirect_domains: vec![],
+            allow_http_redirect: false,
             magic_str: "".to_string(),
             magic_bytes: 32,
             magic_str_duration: "1h".to_string(),
@@ -85,6 +134,7 @@ impl Default for Config {
             rate_limit_max_ip_attempts: 4,
             rate_limit_ip_window: 1800,
             rate_limit_bg_prune_job: 120,
+            rate_limit_user_globally: false,
             content_policy: String::from("default-src 'self'; style-src 'self'; form-action 'self'; script-src 'self' 'sha256-xKOX32ceTgoNvySGOBePspULR2AmjzrMejHixwmcSgo='"),
             cookie_key: generate_cookie_key(),
             cookie_name: String::from("rotproxy_session"),
@@ -93,12 +143,19 @@ impl Default for Config {
             cookie_secure: true,
             session_ttl: 3600,
             session_abs_ttl: 28800,
-            hash_mem_cost: 64,
+            print_terminal_password: false,
+            max_password_length: 64,
+            hash_mem_cost: 128,
             hash_time_cost: 3,
             hash_parallel_cost: 4,
+            totp_alg: TotpAlg::SHA1,
+            totp_digits: 6,
+            totp_skew: 1,
+            totp_step: 30,
             op: Operation::SrvServe,
             magic_duration: Duration::new(0, 0), 
             magic_range: 0..16,
+            totp_conf: TotpConf::default(),
         }
     }
 }
@@ -207,13 +264,13 @@ pub fn parse_args(conf: &mut Config) {
     }
 
     if !override_cfg {
-        let mut config_paths: Vec<PathBuf> = vec![PathBuf::from("config.toml")];
+        let mut config_paths: Vec<PathBuf> = vec![PathBuf::from("/etc/rotproxy/config.toml")];
         
         if let Some(mut user_local_conf_path) = dirs::config_dir() {
             user_local_conf_path.push("rotproxy/config.toml");
             config_paths.push(user_local_conf_path);
         }
-        config_paths.push(PathBuf::from("/etc/rotproxy/config.toml"));
+        config_paths.push(PathBuf::from("config.toml"));
 
         for default_config_path in config_paths {
             match is_valid_file_path(&default_config_path, true, false) {
@@ -319,7 +376,7 @@ pub fn parse_args(conf: &mut Config) {
 
                     conf.html_path = PathBuf::from(file);
                 } else {
-                    eprintln!("Missing value for -t");
+                    eprintln!("Missing value for -w");
                     std::process::exit(1);
                 }
             }
@@ -360,12 +417,13 @@ pub fn parse_args(conf: &mut Config) {
                     Ok(_file) => {},
                     Err(_e) => {
                         eprintln!( "Could not open user database \"{}\": {}", conf.db_path.display(), err);
+                        std::process::exit(1);
                     } 
                 }
             } else {
                 eprintln!( "Could not open user database \"{}\": {}", conf.db_path.display(), err);
+                std::process::exit(1);
             }
-            std::process::exit(1);
         }
     }
     
@@ -408,47 +466,47 @@ pub fn parse_args(conf: &mut Config) {
             std::process::exit(1);
         }
 
-        let char_range: Vec<&str> = conf.magic_str_char_range.split(':').collect();        
-        if char_range.len() != 2 {
+        let char_range: Vec<&str> = conf.magic_str_char_range.split(':').collect();
+        
+        if char_range.len() == 2 {
+            let start = if char_range[0].trim().is_empty() {
+                0
+            } else {
+                match char_range[0].trim().parse::<usize>() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        eprintln!( "Invalid magic_str_char_range \"{}\", start value is invalid", conf.magic_str_char_range);
+                        std::process::exit(1);
+                    }
+                }
+            };
+
+            let end = if char_range[1].trim().is_empty() {
+                usize::MAX
+            } else {
+                match char_range[1].trim().parse::<usize>() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        eprintln!( "Invalid magic_str_char_range \"{}\", end value is invalid", conf.magic_str_char_range);
+                        std::process::exit(1);
+                    }
+                }
+            };
+
+            if start == end {
+                eprintln!( "Invalid magic_str_char_range \"{}\", start value can not be equal to the end value", conf.magic_str_char_range);
+                std::process::exit(1);
+            }
+
+            if start > end {
+                eprintln!( "Invalid magic_str_char_range \"{}\", start value can not be larger than the end value", conf.magic_str_char_range);
+                std::process::exit(1);
+            }
+
+            conf.magic_range = start..end;
+        } else {
             conf.magic_range = 0..usize::MAX;
-            return;
         }
-
-        let start = if char_range[0].trim().is_empty() {
-            0
-        } else {
-            match char_range[0].trim().parse::<usize>() {
-                Ok(n) => n,
-                Err(_) => {
-                    eprintln!( "Invalid magic_str_char_range \"{}\", start value is invalid", conf.magic_str_char_range);
-                    std::process::exit(1);
-                }
-            }
-        };
-
-        let end = if char_range[1].trim().is_empty() {
-            usize::MAX
-        } else {
-            match char_range[1].trim().parse::<usize>() {
-                Ok(n) => n,
-                Err(_) => {
-                    eprintln!( "Invalid magic_str_char_range \"{}\", end value is invalid", conf.magic_str_char_range);
-                    std::process::exit(1);
-                }
-            }
-        };
-
-        if start == end {
-            eprintln!( "Invalid magic_str_char_range \"{}\", start value can not be equal to the end value", conf.magic_str_char_range);
-            std::process::exit(1);
-        }
-
-        if start > end {
-            eprintln!( "Invalid magic_str_char_range \"{}\", start value can not be larger than the end value", conf.magic_str_char_range);
-            std::process::exit(1);
-        }
-
-        conf.magic_range = start..end;
     }
 
     if (conf.hash_mem_cost as u64) * 1024 > u32::MAX as u64 {
@@ -460,4 +518,45 @@ pub fn parse_args(conf: &mut Config) {
         eprintln!( "Configured cookie_key is shorter than the required 64 characters!");
         std::process::exit(1);
     }
+
+    if conf.max_password_length == 0 {
+        eprintln!( "Configured max_password_length is 0, which is not allowed!");
+        std::process::exit(1);
+    }
+
+    if !conf.login_redirect.is_empty() {
+        if !check_redirect(&conf.login_redirect, &conf.redirect_domains, conf.allow_http_redirect) {
+            eprintln!("Configured login_redirect \"{}\" is invalid or not in redirect_domains", conf.login_redirect);
+            std::process::exit(1);
+        }
+    }
+
+    if !conf.logout_redirect.is_empty() {
+        if !check_redirect(&conf.logout_redirect, &conf.redirect_domains, conf.allow_http_redirect) {
+            eprintln!("Configured logout_redirect \"{}\" is invalid or not in redirect_domains", conf.logout_redirect);
+            std::process::exit(1);
+        }
+    }
+
+    if conf.session_ttl <= 0 {
+        eprintln!("Invalid session_ttl: must be greater than 0");
+        std::process::exit(1);
+    }
+
+    if conf.session_abs_ttl <= 0 {
+        eprintln!("Invalid session_abs_ttl: must be greater than 0");
+        std::process::exit(1);
+    }
+
+    if conf.totp_digits < 6 || conf.totp_digits > 8 {
+        eprintln!("Invalid totp_digits: \"{}\", supported values are between 6 and 8", conf.totp_digits);
+        std::process::exit(1);
+    }
+
+    if conf.totp_step <= 0 {
+        eprintln!("Invalid totp_step: must be greater than 0");
+        std::process::exit(1);
+    }
+
+    conf.totp_conf = TotpConf { alg: conf.totp_alg.clone(), digits: conf.totp_digits, skew: conf.totp_skew, step: conf.totp_step }
 }

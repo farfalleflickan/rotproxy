@@ -29,7 +29,7 @@ pub fn read_user_db(file: &PathBuf) -> Result<HashMap<String, User>, std::io::Er
         }
         Err(err) => {
             eprintln!("Failed while parsing the user DB: {}", err);
-            Ok(HashMap::new())
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
         },
     }
 }
@@ -80,30 +80,38 @@ pub fn add_user(conf: Config) {
     loop {
         print!("Enter password: ");
         handle_unwrap!(std::io::stdout().flush());
-        pwd = utils::read_password();
+        pwd = utils::read_password(conf.print_terminal_password);
 
         if !pwd.is_empty() {
             let password_match: bool;
             println!();
-            loop {
-                print!("Repeat password: ");
-                handle_unwrap!(std::io::stdout().flush());
-                let repeat_pwd = utils::read_password();
-        
-                if !repeat_pwd.is_empty() {
-                    password_match = pwd == repeat_pwd;
-                    break;
-                } else {
-                    println!("\nPassword cannot be empty!");
-                }
-            }
-            
-            if password_match {
-                println!();
-                break
-            } else {
-                println!("\nPasswords do not match!");
+
+            if pwd.chars().count() > conf.max_password_length {
+                println!("\nPassword is too long!");
                 pwd.clear();
+            } else {
+                loop {
+                    print!("Repeat password: ");
+                    handle_unwrap!(std::io::stdout().flush());
+                    let repeat_pwd = utils::read_password(conf.print_terminal_password);
+                    
+                    if repeat_pwd.chars().count() > conf.max_password_length {
+                        println!("\nRepeat password is too long!");
+                    } else if !repeat_pwd.is_empty() {
+                        password_match = pwd == repeat_pwd;
+                        break;
+                    } else {
+                        println!("\nPassword cannot be empty!");
+                    }
+                }
+                            
+                if password_match {
+                    println!();
+                    break
+                } else {
+                    println!("\nPasswords do not match!");
+                    pwd.clear();
+                }
             }
         } else {
             println!("\nPassword cannot be empty!");
@@ -134,10 +142,10 @@ pub fn add_user(conf: Config) {
         totp
     };
 
-    user_map.insert(username.clone(), user);
-    let _ = write_user_db(db_path, user_map);
+    crypt::print_totp_qr_cli(&conf.totp_conf, &username, &secret);
 
-    crypt::print_totp_qr_cli(&username, &secret);
+    user_map.insert(username.clone(), user);
+    handle_unwrap!(write_user_db(db_path, user_map));
     println!("\nUser {} created!", username);
 }
 
@@ -171,7 +179,7 @@ pub fn del_user(db_path: PathBuf) {
 
     if del_user {
         let _ = user_map.remove(&username);
-        let _ = write_user_db(&db_path, user_map);
+        handle_unwrap!(write_user_db(&db_path, user_map));
         println!("User \"{}\" deleted.", username)
     } else {
         println!("Operation cancelled.");
@@ -211,8 +219,16 @@ pub fn edit_user(conf: Config) {
                 input = utils::prompt_line("Enter new username: ");
 
                 if !input.is_empty() {
-                    user.user = input.clone();
-                    break;
+                    if validate_username(&input) {
+                        if !user_map.contains_key(&input) {
+                            user.user = input.clone();
+                            break;
+                        } else {
+                            println!("A user with this username already exists!");
+                        }
+                    } else {
+                        println!("Username contains unallowed characters!");
+                    }
                 } else {
                     println!("Username cannot be empty!");
                 }
@@ -227,9 +243,11 @@ pub fn edit_user(conf: Config) {
             loop {
                 print!("Enter old password: ");
                 handle_unwrap!(io::stdout().flush());
-                let old_pwd = utils::read_password();
+                let old_pwd = utils::read_password(conf.print_terminal_password);
 
-                if crypt::verify_password(&conf, &user.password, &old_pwd) {
+                if old_pwd.chars().count() > conf.max_password_length {
+                    println!("\nPassword too long!");
+                } else if crypt::verify_password(&conf, &user.password, &old_pwd) {
                     let salt = crypt::get_hash_salt(&user.password);
                     if salt.is_err() {
                         utils::fatal_error(&format!("Failed getting salt while parsing hash: {}", user.password), salt.as_ref().err());
@@ -251,17 +269,21 @@ pub fn edit_user(conf: Config) {
             loop {
                 print!("Enter new password: ");
                 handle_unwrap!(io::stdout().flush());
-                let new_pwd = utils::read_password();
+                let new_pwd = utils::read_password(conf.print_terminal_password);
 
-                if !new_pwd.is_empty() {
+                if new_pwd.chars().count() > conf.max_password_length {
+                    println!("\nPassword too long!");
+                } else if !new_pwd.is_empty() {
                     let password_match: bool;
                     println!();
                     loop {
                         print!("Repeat new password: ");
                         handle_unwrap!(std::io::stdout().flush());
-                        let repeat_pwd = utils::read_password();
+                        let repeat_pwd = utils::read_password(conf.print_terminal_password);
                 
-                        if !repeat_pwd.is_empty() {
+                        if repeat_pwd.chars().count() > conf.max_password_length {
+                            println!("\nPassword too long!");
+                        } else if !repeat_pwd.is_empty() {
                             password_match = new_pwd == repeat_pwd;
                             break;
                         } else {
@@ -323,9 +345,11 @@ pub fn edit_user(conf: Config) {
                 loop {
                     print!("Enter user password: ");
                     handle_unwrap!(io::stdout().flush());
-                    let pwd = utils::read_password();
+                    let pwd = utils::read_password(conf.print_terminal_password);
     
-                    if crypt::verify_password(&conf, &user.password, &pwd) {
+                    if pwd.chars().count() > conf.max_password_length {
+                        println!("\nPassword too long!");
+                    } else if crypt::verify_password(&conf, &user.password, &pwd) {
                         let salt = crypt::get_hash_salt(&user.password);
                         if salt.is_err() {
                             utils::fatal_error(&format!("Failed getting salt while parsing hash: {}", user.password), salt.as_ref().err());
@@ -350,9 +374,6 @@ pub fn edit_user(conf: Config) {
         }
 
         let new_username = user.user.clone();
-        user_map.insert(new_username.clone(), user);
-
-        let _ = write_user_db(db_path, user_map);
 
         if change_username || change_pwd || change_totp {
             if change_username {
@@ -368,13 +389,17 @@ pub fn edit_user(conf: Config) {
             if change_totp {
                 if let Some(s) = &secret {
                     println!("TOTP has been updated.");
-                    crypt::print_totp_qr_cli(&new_username, s);
+                    crypt::print_totp_qr_cli(&conf.totp_conf, &new_username, s);
                     println!();
                 }
             }
         }
+        
+        user_map.insert(new_username.clone(), user);
+
+        handle_unwrap!(write_user_db(db_path, user_map));
     } else {
-        utils::fatal_error::<String>("Exptected user could not be changed.", None);
+        utils::fatal_error::<String>("Expected user could not be changed.", None);
     }
 }
 
@@ -394,7 +419,7 @@ pub fn list_users(db_path: PathBuf) {
 }
 
 pub fn validate_username(name: &str) -> bool {
-    if name.is_empty() || name.len() > 32 {
+    if name.is_empty() || name.chars().count() > 32 {
         return false
     }
 

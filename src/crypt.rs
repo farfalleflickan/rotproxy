@@ -1,4 +1,4 @@
-use super::{handle_unwrap, config::Config, utils::to_hex};
+use super::{handle_unwrap, config::{Config, TotpConf}, utils::to_hex};
 
 use argon2::{password_hash::{rand_core::{OsRng, RngCore}, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
 use chacha20poly1305::{aead::{Aead, AeadCore, KeyInit}, XChaCha20Poly1305, Key, XNonce};
@@ -42,9 +42,9 @@ pub fn rand_str(size: usize) -> String {
     String::from_utf8(out).unwrap()
 }
 
-pub fn check_totp(secret: &str, code: &str) -> bool {
+pub fn check_totp(conf: &TotpConf, secret: &str, code: &str) -> bool {
     if let Ok(secret) = Secret::Encoded(secret.to_string()).to_bytes() {
-        if let Ok(totp) = TOTP::new(totp_rs::Algorithm::SHA1, 6,1,30, secret, None, "".to_string()) {
+        if let Ok(totp) = TOTP::new(conf.alg.clone().into(), conf.digits, conf.skew, conf.step, secret, None, "".to_string()) {
             if let Ok(res) = totp.check_current(code) { return res }
         }
     }
@@ -86,10 +86,10 @@ pub fn get_hash_salt(hash: &str) -> Result<String, argon2::password_hash::Error>
 }
 
 //handle_unwrap exit OK cus only used in cli
-pub fn print_totp_qr_cli(name: &str, secret: &str) {
-    println!("\nTOTP SECRET: {}", secret);
-    let secret = handle_unwrap!(Secret::Encoded(secret.to_string()).to_bytes());
-    let totp = handle_unwrap!(TOTP::new(totp_rs::Algorithm::SHA1, 6,1,30, secret, Some("rotproxy".to_string()), name.to_string()));
+pub fn print_totp_qr_cli(conf: &TotpConf, name: &str, secret_str: &str) {
+    let secret = handle_unwrap!(Secret::Encoded(secret_str.to_string()).to_bytes());
+    let totp = handle_unwrap!(TOTP::new(conf.alg.clone().into(), conf.digits, conf.skew, conf.step, secret, Some("rotproxy".to_string()), name.to_string()));
+    println!("\nTOTP SECRET: {}", secret_str);
     println!("TOTP QR code:\n");
     let _ = qr2term::print_qr(totp.get_url());
 }
@@ -99,10 +99,22 @@ pub fn new_secret() -> String {
 }
 
 pub fn rand_between(min: u64, max: u64) -> u64 {
+    let (min, max) = if min > max { (max, min) } else { (min, max) };
     let mut rng = OsRng;
-    let v    = rng.next_u64();
-    let range = max - min + 1;
-    min + (v % range)
+    let range = if max == u64::MAX && min == 0 {
+            return rng.next_u64();
+        } else {
+            max - min + 1
+        };
+
+    let zone = u64::MAX - (u64::MAX % range);
+
+    loop {
+        let v = rng.next_u64();
+        if v < zone {
+            return min + (v % range);
+        }
+    }
 }
 
 pub fn kdf_encrypt(conf: &Config, plaintext: &str, password: &str, salt: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -115,8 +127,9 @@ pub fn kdf_encrypt(conf: &Config, plaintext: &str, password: &str, salt: &str) -
     let cipher = XChaCha20Poly1305::new(Key::from_slice(&kdf_bytes));
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
     
-    let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes().as_ref())?;
+    let result = cipher.encrypt(&nonce, plaintext.as_bytes().as_ref());
     kdf_bytes.zeroize();
+    let ciphertext = result?;
 
     let mut buf = Vec::with_capacity(nonce.len() + ciphertext.len());
     buf.extend_from_slice(&nonce);
@@ -141,11 +154,11 @@ pub fn kdf_decrypt(conf: &Config, encrypted: &str, password: &str, salt: &str) -
 
     let nonce = XNonce::from_slice(nonce_bytes);
 
-    let decrypted = cipher.decrypt(nonce, ciphertext)?;
-
+    let result = cipher.decrypt(nonce, ciphertext);
     kdf_bytes.zeroize();
+    let decrypted = Zeroizing::new(result?);
 
-    Ok(Zeroizing::new(String::from_utf8(decrypted)?))
+    Ok(Zeroizing::new(String::from_utf8(decrypted.to_vec())?))
 }
 
 pub fn magic_hash(magic_str: &str, hash_size: usize, time: Duration, range: Range<usize>) -> String {

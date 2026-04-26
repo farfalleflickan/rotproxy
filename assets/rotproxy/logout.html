@@ -9,6 +9,7 @@
     <body>
         <form action="{LOGOUT_ENDPOINT}" class="form" method="post">
             <input type="hidden" name="csrf_token" value="{CSRF_TOKEN_TEMPLATE}" required />
+            <div>{ERROR_HTML}</div>
             <button type="submit" id="logoutButton">Log out?</button>
             <div id="spinner"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></div>
         </form>

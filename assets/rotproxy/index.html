@@ -12,6 +12,7 @@
             <input type="password" id="password" name="password" placeholder="Password" autocomplete="password"  required />
             <input type="text" id="totp" name="totp" placeholder="TOTP 6-digit code" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" required aria-describedby="totp-desc" required />
             <input type="hidden" name="csrf_token" value="{CSRF_TOKEN_TEMPLATE}" required />
+            <div>{ERROR_HTML}</div>
             <button type="submit" id="loginButton">Log in</button>
             <div id="spinner"><div class="lds-ring"><div></div><div></div><div></div><div></div></div></div>
         </form>

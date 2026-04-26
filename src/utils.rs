@@ -1,4 +1,5 @@
 use std::{collections::VecDeque, fs::{OpenOptions}, io::{self, BufReader, Read, Write}, path::Path, str::FromStr, time::{SystemTime, UNIX_EPOCH}};
+use constant_time_eq::constant_time_eq;
 use termion::raw::IntoRawMode;
 
 #[macro_export]
@@ -66,15 +67,19 @@ impl<T> SmartQueue<T> {
     }
 }
 
-pub fn read_password() -> String {
+pub fn read_password(print_pw: bool) -> String {
     let mut stdout = handle_unwrap!(io::stdout().lock().into_raw_mode());
 
     let mut password = String::new();
     let mut printed_chars = 0;
 
-    let reader = BufReader::new(io::stdin().lock());
-    for byte in reader.bytes() {
-        let byte = handle_unwrap!(byte);
+    let mut reader = BufReader::new(io::stdin().lock());
+
+    let mut buffer = Vec::new();
+    let mut temp = [0; 1];
+
+    while reader.read(&mut temp).unwrap_or(0) > 0 {
+        let byte = temp[0];
 
         if byte == 0x03 {
             drop(stdout);
@@ -88,17 +93,35 @@ pub fn read_password() -> String {
 
         //backspace/delete
         if byte == b'\x08' || byte == b'\x7f' {
+            buffer.clear();
             if printed_chars > 0 {
                 print!("\x08 \x08");
                 handle_unwrap!(stdout.flush());
                 password.pop();
                 printed_chars -= 1;
             }
-        } else {
-            print!("•");
-            handle_unwrap!(stdout.flush());
-            password.push(byte as char);
-            printed_chars += 1;
+            continue;
+        }
+
+        buffer.push(byte);
+
+        //decode UTF-8 incrementally
+        if let Ok(s) = std::str::from_utf8(&buffer) {
+            if let Some(ch) = s.chars().next() {
+                if print_pw {
+                    print!("{}", ch);
+                } else {
+                    print!("•");
+                }
+                handle_unwrap!(stdout.flush());
+
+                password.push(ch);
+                printed_chars += 1;
+                buffer.clear();
+            }
+        } else if buffer.len() > 4 {
+            //invalid
+            buffer.clear();
         }
     }
 
@@ -205,17 +228,6 @@ pub fn trim_slash_end(str: &str) -> String {
     str.to_string()
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result: u8 = 0;
-    for (&x, &y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
-    }
-    result == 0
-}
-
 pub fn constant_time_eq_str(a: &str, b: &str) -> bool {
     constant_time_eq(a.as_bytes(), b.as_bytes())
 }
@@ -228,4 +240,16 @@ pub fn to_hex(bytes: &[u8]) -> String {
         write!(&mut ret, "{:02x}", b).unwrap();
     }
     ret
+}
+
+pub fn sanitize_string(input: &str) -> String {
+    input.chars().flat_map(|c| c.escape_default()).collect()
+}
+
+pub fn truncate_string(input: &str, max_size: usize) -> &str {
+    if input.chars().count() <= max_size {
+        input
+    } else {
+        input.char_indices().nth(max_size).map(|(idx, _)| &input[..idx]).unwrap_or(input)
+    }
 }

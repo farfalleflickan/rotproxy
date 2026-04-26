@@ -19,13 +19,14 @@ login_page = "html"
 This means that the main page is hosted on `/rotproxy/html`, when one types their login information it will POST to `rotproxy/login` while the auth endpoint is `/rotproxy/apiv1/auth`. 
 
 ### Redirects
-The `login_redirect` and `logout_redirect` settings take URLs to which a user will be automatically redirected on login/logout. These are static routes, but one can also pass the request parameter `redirect=` to specify where a user should be redirected. The URL specified in the request parameter is then checked for safety, relative URLs are validated while absolute URLs are checked against `redirect_domains`. If `redirect_domains` is left empty, only relative URLs are allowed in `redirect=` since there are no valid domains. Note that `redirect_domains` is validated at startup. Subdomains need to be explicitly allowed.
+The `login_redirect` and `logout_redirect` settings take URLs to which a user will be automatically redirected on login/logout. These are static routes, but one can also pass the request parameter `redirect=` to specify where a user should be redirected. The URL specified in the request parameter is then checked for safety, relative URLs are validated while absolute URLs are checked against `redirect_domains`. If `redirect_domains` is left empty, only relative URLs are allowed in `redirect=` since there are no valid domains. Note that `redirect_domains` is validated at startup. Subdomains need to be explicitly allowed. To allow redirecting to http, `allow_http_redirect` has to be set to `true`.
 
 Example:
 ```
 login_redirect = "https://example.com/dashboard"
 logout_redirect = "https://example.com/"
 redirect_domains = [ "example.com" ]
+allow_http_redirect = false
 ```
 
 ### Magic routing
@@ -92,6 +93,11 @@ There is one final setting for the rate limiter: `rate_limit_bg_prune_job`. This
 
 Note that bans do not survive across server restarts.
 
+```
+rate_limit_user_globally = true
+```
+If `rate_limit_user_globally` is set to true, instead of blocking access to a user for a specific IP, a user will be rate limited globally, regardless of which IP attempted to login.
+
 ### Cookies & sessions
 rotproxy uses a single cookie to track logged in sessions & preserve them across server reboots, a new secure cookie key can be generated using `rotproxy gen-cookie`.   
 `cookie_secure` specifies whether the `Secure` attribute is set on the cookie. Note that `SameSite` is always set to `Strict` and that `HttpOnly` is always set.  
@@ -107,3 +113,26 @@ hash_time_cost = 3
 hash_parallel_cost = 4
 ```
 These 3 settings can be used to harden the Argon2 hashing. These defaults are taken from BitWarden and are technically above standard recommendations. For more information on whether to change these and what to, see [here](https://en.wikipedia.org/wiki/Argon2#Recommended_minimum_parameters) or [here](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#introduction). These values can be adjusted to reduce memory usage or computational time. However, to maintain security, decreasing memory usage should be balanced by increasing computational time, and decreasing computational time should be balanced by increasing memory usage.
+
+### TOTP
+```
+totp_alg: "SHA1",
+totp_digits: 6,
+totp_skew: 1,
+totp_step: 30,
+```
+To ensure maximum compatibility, `rotproxy` uses `SHA1` with `6` digits, a skew of `1` and a step of `30`. It is possible to configure other algorithms such as `SHA256` and `SHA512` as well as custom digits, skew, step with the above settings. 
+
+Note that the minimum number of digits allowed is `6` and the maximum is `8`. Skew and step have no enforced minimum/maximum.
+
+### Various
+```
+print_terminal_password = true
+```
+This setting sets the terminal behavior of `add-user` and `edit-user`, it changes whether the raw password is shown in the terminal or if it is hidden with `•`.
+
+```
+max_password_length = 64
+```
+
+This setting specifies the max length allowed for passwords.
