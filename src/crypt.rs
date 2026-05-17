@@ -156,9 +156,9 @@ pub fn kdf_decrypt(conf: &Config, encrypted: &str, password: &str, salt: &str) -
 
     let result = cipher.decrypt(nonce, ciphertext);
     kdf_bytes.zeroize();
-    let decrypted = Zeroizing::new(result?);
 
-    Ok(Zeroizing::new(String::from_utf8(decrypted.to_vec())?))
+    let raw: Vec<u8> = result?;
+    Ok(Zeroizing::new(String::from_utf8(raw)?))
 }
 
 pub fn magic_hash(magic_str: &str, hash_size: usize, time: Duration, range: Range<usize>) -> String {

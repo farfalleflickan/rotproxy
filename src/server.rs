@@ -77,8 +77,7 @@ impl RateLimiter {
     }
 
     pub fn clear_user(&self, user: &str, ip: &str) {
-        let prefix = format!("user:{}:{}", user, ip);
-        self.clear_prefix(&prefix);
+        self.clients.remove(&format!("user:{}:{}", user, ip));
     }
     
     #[allow(dead_code)]
@@ -146,6 +145,10 @@ fn check_allowed_domain(redirect: &str, allowed_domains: &[String], allow_http: 
     };
     
     if parsed_url.scheme() != "https" && !(allow_http && parsed_url.scheme() == "http") {
+        return false;
+    }
+
+    if parsed_url.port().is_some() {
         return false;
     }
     
@@ -391,7 +394,11 @@ fn get_client_ip(conf: &config::Config, req: &HttpRequest) -> Option<IpAddr> {
         }
     }
 
-    Some(peer_ip)
+    if conf.trusted_proxies.is_empty() {
+        return Some(peer_ip);
+    }
+
+    None
 }
 
 async fn login(req: HttpRequest, magic_path: Option<web::Path<String>>, data: web::Data<DashMap<String, user::User>>, totp_data: web::Data<DashMap<String, Instant>>, form: web::Form<LoginForm>, session: actix_session::Session, rate_limiter: web::Data<RateLimiter>, conf: web::Data<config::Config>, html: web::Data<HtmlIndexContent>, css_path: web::Data<CssRoute>, dummy_crypto: web::Data<DummyCrypto>) -> impl Responder {
