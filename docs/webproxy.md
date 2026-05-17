@@ -23,6 +23,7 @@ location /rotproxy {
     
     proxy_pass http://localhost:8000/rotproxy;
     proxy_intercept_errors on;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 
 location = /auth {
@@ -31,6 +32,7 @@ location = /auth {
     allow 127.0.0.1;
     error_page 401 404 = @fallback;
     proxy_pass http://localhost:8000/rotproxy/auth;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 ```
 
