@@ -34,7 +34,7 @@ impl From<TotpAlg> for totp_rs::Algorithm {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct TotpConf {
     pub alg: TotpAlg,
     pub digits: usize,
@@ -54,7 +54,7 @@ impl Default for TotpConf {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub ip: String,
     pub port: u16,
